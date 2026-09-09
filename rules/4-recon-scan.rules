@@ -1,0 +1,24 @@
+#-----------------------------------------------------------------------
+# 4XXXXXX  스캐닝 / 정찰 (Nmap/Zenmap/Scapy)
+# 모든 스캔은 "짧은 시간 · 같은 출발지 · 반복"이라는 공통 성질 → 임계 탐지.
+# 정찰은 즉시 차단보다 관찰이 우선 → 원칙적으로 IDS Alert.
+#-----------------------------------------------------------------------
+
+# TCP SYN Scan : 5초 내 SYN 30개 이상
+alert tcp $EXTERNAL_NET any -> $HOME_NET any ( msg:"SCAN - TCP SYN Scan"; flags:S; detection_filter:track by_src, count 30, seconds 5; sid:4001001; rev:1; )
+# SYN Scan 응답 RST/ACK : 방화벽 미적용(closed port) 구간에서만 관측됨
+alert tcp $HOME_NET any -> $EXTERNAL_NET any ( msg:"SCAN - TCP SYN Scan RST/ACK"; flags:RA; detection_filter:track by_dst, count 30, seconds 5; sid:4001002; rev:1; )
+# 스텔스 스캔 : FIN / NULL / Xmas
+alert tcp $EXTERNAL_NET any -> $HOME_NET any ( msg:"SCAN - TCP FIN Scan";  flags:F;   detection_filter:track by_src, count 15, seconds 5; sid:4003001; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HOME_NET any ( msg:"SCAN - TCP NULL Scan"; flags:0;   detection_filter:track by_src, count 15, seconds 5; sid:4004001; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HOME_NET any ( msg:"SCAN - TCP Xmas Scan"; flags:FPU;  detection_filter:track by_src, count 15, seconds 5; sid:4005001; rev:1; )
+# Version / Service scan : 10초 내 3306(MariaDB) 연결 5회 이상
+alert tcp $EXTERNAL_NET any -> $HOME_NET 3306 ( msg:"NMAP unauthenticated MariaDB scanning"; flow:to_server; flags:S; detection_filter:track by_src, count 5, seconds 10; sid:4007006; rev:1; )
+# OpenSSH 버전 배너 노출 응답
+alert tcp $HOME_NET 22 -> $EXTERNAL_NET any ( msg:"OpenSSH Server Version Banner Disclosure"; flow:to_client,established; content:"SSH-2.0-OpenSSH_"; sid:4007003; rev:1; )
+# NSE(Nmap Scripting Engine) SSH hostkey 열거 프로브
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 ( msg:"Nmap SSH Hostkey Enumeration Probe"; flow:to_server,established; content:"ssh-userauth"; content:"nmap"; nocase; sid:4008002; rev:1; )
+# NSE WebDAV PROPFIND 정찰
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"WebDAV PROPFIND Reconnaissance"; flow:to_server,established; service http; http_method; content:"PROPFIND"; sid:4008003; rev:1; )
+# IP Protocol Scan(-sO) : 30초 내 payload 0바이트 IP 패킷 90개 이상
+alert ip $EXTERNAL_NET any -> $HOME_NET any ( msg:"Nmap IP Protocol Scan (-sO) suspected"; dsize:0; detection_filter:track by_src, count 90, seconds 30; sid:4010001; rev:1; )

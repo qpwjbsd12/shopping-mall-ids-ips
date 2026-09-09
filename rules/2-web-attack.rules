@@ -1,0 +1,35 @@
+#-----------------------------------------------------------------------
+# 2XXXXXX  웹 공격 (SQLi/XSS/File Upload/IDOR/RLO/Redirect) — IDS03/IPS03
+# 레드팀 4개 시나리오(SCN-01~04)의 웹 계층 단계를 탐지.
+#-----------------------------------------------------------------------
+
+# === SQL Injection (2001XXX) — SCN-01 ===
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"SQL Injection - SQL Comment Detected on Login"; flow:to_server,established; service http; http_uri; content:"/login.php"; http_client_body; content:"username"; pcre:"/(?:--|#|\/\*)/"; sid:2001006; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"SQL Injection - Always True Condition"; flow:to_server,established; service http; http_client_body; pcre:"/'\s*OR\s*'?1'?\s*=\s*'?1/i"; sid:2001010; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"Login Request Contains Username and Plaintext Password"; flow:to_server,established; service http; http_client_body; content:"username="; content:"password="; sid:2000001; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"SQL Injection - Information Schema Column"; flow:to_server,established; service http; http_raw_uri; content:"information_schema", nocase; sid:2001009; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"SQL Injection - UNION SELECT Credential Fields"; flow:to_server,established; service http; pcre:"/union\s+select.+(pass|pwd|passwd|password|user)/i"; sid:2001008; rev:1; )
+# 오탐 낮음 → IPS03에서 drop 후보
+drop  tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"SQL Injection - UNION SELECT Password"; flow:to_server,established; service http; pcre:"/union\s+select.*password/i"; sid:2001002; rev:1; )
+
+# === Stored XSS (2003XXX) — SCN-02 ===
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"XSS(S) - Script Tag"; flow:to_server,established; service http; http_client_body; content:"<script", nocase; sid:2003001; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"Stored XSS cookie"; flow:to_server,established; service http; http_client_body; content:"document.cookie", nocase; sid:2003005; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"XSS(S) - Anchor URI"; flow:to_server,established; service http; http_client_body; pcre:"/<a\s[^>]*href\s*=\s*['\"]?https?:\/\//i"; sid:2003004; rev:1; )
+
+# === Redirect / RLO (2004/2009) — SCN-02 피싱 ===
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"Open Redirect External"; flow:to_server,established; service http; http_uri; pcre:"/(?:url|next|redirect|return)=https?%3a%2f%2f/i"; sid:2004001; rev:1; )
+# RLO(U+202E) 파일명 위장 — 오탐 거의 없음 → IPS drop
+drop  tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"Unicode RLO filename spoofing detected"; flow:to_server,established; service http; content:"|E2 80 AE|"; sid:2009001; rev:1; )
+
+# === File Upload (2006XXX) — SCN-03 ===
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"FILE UPLOAD - Dangerous Executable Filename Extension"; flow:to_server,established; service http; http_client_body; pcre:"/filename\s*=\s*['\"]?[^'\"]+\.(php|jsp|sh|exe|py|reg)/i"; sid:2006001; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"FILE UPLOAD - Filename Extension and Content-Type Mismatch"; flow:to_server,established; service http; http_client_body; content:"Content-Type|3a| image/"; pcre:"/filename\s*=\s*['\"]?[^'\"]+\.(php|js|exe|sh|py|reg)/i"; sid:2006002; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"WEB ATTACK - Dangerous File Requested from Upload Directory"; flow:to_server,established; service http; http_uri; content:"/uploads/"; pcre:"/\.(php|jsp|sh|py)(\?|$)/i"; sid:2006003; rev:1; )
+
+# === Broken Access Control / IDOR (2007/2008) — 확장 시나리오 ===
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"ACCESS CONTROL - Profile User Does Not Match Buyer"; flow:to_server,established; service http; http_uri; content:"/profile.php"; sid:2007001; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"IDOR - Order Request"; flow:to_server,established; service http; http_uri; content:"/order.php"; pcre:"/[?&]id=\d+/"; detection_filter:track by_src, count 5, seconds 60; sid:2008001; rev:1; )
+
+# === Command Injection (2002XXX) — SCN-03 업로드 연계 ===
+drop tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"Command Injection - Reverse Shell"; flow:to_server,established; service http; pcre:"/(?:bash\s+-i|\/dev\/tcp\/|nc\s+-e)/i"; sid:2002002; rev:1; )

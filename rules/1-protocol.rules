@@ -1,0 +1,36 @@
+#-----------------------------------------------------------------------
+# 1XXXXXX  기본 프로토콜 (FTP/SMB/SSH/DHCP/SNMP/DNS)  — IDS01/IDS02
+# 보고서에 기록된 SID/시그니처를 Snort3 문법으로 재구성한 대표 룰.
+# 내부망에서 "허용된 프로토콜의 비정상 사용"을 탐지하는 것이 목적.
+#-----------------------------------------------------------------------
+
+# --- FTP (1001XXX) : 제어 채널 명령 관찰 ---
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 ( msg:"FTP USER Command"; flow:to_server,established; content:"USER ", nocase; sid:1001005; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 ( msg:"FTP PASS Command"; flow:to_server,established; content:"PASS ", nocase; sid:1001007; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 ( msg:"FTP SIZE Command - remote file probe"; flow:to_server,established; content:"SIZE ", nocase; sid:1001113; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 ( msg:"FTP CWD / - absolute path traversal attempt"; flow:to_server,established; content:"CWD /", nocase; sid:1001203; rev:1; )
+# 검사 후 변조 우회 반입 (IPS01에서 drop 후보)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 ( msg:"FTP renamed to dangerous extension"; flow:to_server,established; content:"RNTO ", nocase; pcre:"/RNTO\s+.*\.(php|jsp|sh|exe|py)/i"; sid:1001405; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 ( msg:"FTP parent path file upload"; flow:to_server,established; content:"STOR ", nocase; content:"../"; within:64; sid:1001212; rev:1; )
+
+# --- SMB (1006XXX) : 바이트 시그니처 기반 ---
+# FE 53 4D 42 = SMB2 Protocol ID("\xFESMB"). 뒤 명령/상태 코드로 구분.
+alert tcp $EXTERNAL_NET any -> $HOME_NET 445 ( msg:"SMB2 TREE_CONNECT to admin share C$"; flow:to_server,established; content:"|FE 53 4D 42|"; content:"|03 00|"; content:"C|00|$|00|"; sid:1006001; rev:1; )
+alert tcp $HOME_NET 445 -> $EXTERNAL_NET any ( msg:"SMB2 STATUS_LOGON_FAILURE repeated"; flow:to_client,established; content:"|FE 53 4D 42|"; content:"|6D 00 00 C0|"; detection_filter:track by_dst, count 5, seconds 30; sid:1006003; rev:1; )
+alert tcp $EXTERNAL_NET any -> $HOME_NET 445 ( msg:"SMB2 Directory Traversal Path Attempt"; flow:to_server,established; content:"|FE 53 4D 42|"; content:"..|5C|"; sid:1006002; rev:1; )
+
+# --- SSH (1005XXX) ---
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 ( msg:"SSH repeated session from same source"; flow:to_server,established; content:"SSH-2.0-"; detection_filter:track by_src, count 5, seconds 10; sid:1005003; rev:1; )
+
+# --- DHCP (1008XXX) : Rogue 서버 / 고갈 ---
+alert udp !$DHCP_SERVER 67 -> $HOME_NET 68 ( msg:"DHCP Rogue Server OFFER"; content:"|02|", offset 0, depth 1; content:"|35 01 02|"; sid:1008001; rev:1; )
+alert udp !$DHCP_SERVER 67 -> $HOME_NET 68 ( msg:"DHCP Rogue Server ACK";   content:"|02|", offset 0, depth 1; content:"|35 01 05|"; sid:1008002; rev:1; )
+alert udp $HOME_NET 68 -> 255.255.255.255 67 ( msg:"DHCP DISCOVER flood"; content:"|35 01 01|"; detection_filter:track by_src, count 29, seconds 5; sid:1008004; rev:1; )
+
+# --- SNMP (1003XXX) : 쓰기/기본 커뮤니티/열거 (IPS02 중점) ---
+alert udp $EXTERNAL_NET any -> $HOME_NET 161 ( msg:"PROTOCOL-SNMP SetRequest write attempt"; content:"|A3|"; sid:1003010; rev:1; )
+alert udp $EXTERNAL_NET any -> $HOME_NET 161 ( msg:"PROTOCOL-SNMP default community public"; content:"public"; nocase; sid:1003001; rev:1; )
+
+# --- DNS (1004XXX) : Zone Transfer / 터널링 ---
+alert tcp $EXTERNAL_NET any -> $HOME_NET 53 ( msg:"SEC-DNS Zone Transfer (AXFR/IXFR) Recon"; flow:to_server,established; content:"|00 FC|"; sid:1004006; rev:1; )
+alert udp $HOME_NET any -> $EXTERNAL_NET 53 ( msg:"SEC-DNS Potential Tunneling - abnormally long subdomain"; pcre:"/[a-z0-9]{40,}\./i"; sid:1004007; rev:1; )

@@ -1,0 +1,12 @@
+#-----------------------------------------------------------------------
+# 3XXXXXX  네트워크 공격 (Brute Force / ARP Spoofing)
+# 단발 패킷이 아니라 "반복 행위"로 정의되는 공격 → detection_filter 임계.
+#-----------------------------------------------------------------------
+
+# --- Brute Force (3001XXX) — SCN-04 ---
+# 60초 안에 /login.php 요청이 10회를 넘으면 브루트포스로 판정.
+alert tcp $EXTERNAL_NET any -> $HTTP_SERVERS 80 ( msg:"BF - Login Attempt"; flow:to_server,established; service http; http_uri; content:"/login.php"; http_method; content:"POST"; detection_filter:track by_src, count 10, seconds 60; sid:3001001; rev:1; )
+
+# --- ARP Spoofing (3002XXX) ---
+# 동일 송신자가 서로 다른 IP를 짧은 시간에 대량 announce → 캐시 포이즈닝 의심.
+alert arp any any -> any any ( msg:"ARP Spoofing - excessive gratuitous reply"; detection_filter:track by_src, count 20, seconds 10; sid:3002001; rev:1; )
