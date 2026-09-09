@@ -1,0 +1,11 @@
+# OS
+.DS_Store
+Thumbs.db
+# Editors
+.vscode/
+.idea/
+*.swp
+# Logs / captures (실제 운영 데이터는 커밋 금지)
+*.pcap
+*.pcapng
+*.log
